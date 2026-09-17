@@ -31,7 +31,9 @@ student-depression-mlops/
 │   ├── raw/                  # Dataset original (student_depression.csv)
 │   └── processed/            # Datos limpios / transformados
 ├── notebooks/
-│   └── 01_eda.ipynb          # Análisis exploratorio de datos
+│   ├── 01_eda.ipynb          # Análisis exploratorio de datos
+│   ├── 02_modeling.ipynb     # Modelado y evaluación (baseline)
+│   └── 03_tuning.ipynb       # Ajuste de hiperparámetros y del umbral
 ├── src/
 │   ├── config/               # Constantes y rutas (constants.py)
 │   ├── data/                 # Carga (loaders.py) y utilidades (utils.py)
@@ -68,19 +70,52 @@ uv run jupyter lab notebooks/01_eda.ipynb
 - [x] Preprocesamiento (imputación + encoding + escalado) — `src/features/engineering.py`
 - [x] Modelado (Logistic Regression, Decision Tree, Random Forest) — `src/models/train.py`
 - [x] Evaluación (matriz de confusión, ROC-AUC, recall) — `notebooks/02_modeling.ipynb`
-- [ ] Ajuste de hiperparámetros (GridSearch)
+- [x] Ajuste de hiperparámetros (GridSearch / RandomizedSearch, optimizando F1) — `notebooks/03_tuning.ipynb`
+- [x] Ajuste del umbral de decisión (curva precision-recall, prioriza recall) — `notebooks/03_tuning.ipynb`
+- [x] Pruebas unitarias (`uv run pytest`) — `tests/`
 - [ ] Seguimiento de experimentos (MLflow) / despliegue
 
-## Resultados (baseline)
+## Tests
 
-Mejor modelo: **Logistic Regression** (ganador por F1 en validación cruzada).
+```bash
+uv run pytest
+```
 
-| Métrica | Valor (test) |
-|---------|--------------|
-| Accuracy | 0.844 |
-| F1 | 0.868 |
-| ROC-AUC | 0.918 |
-| Recall (clase 1) | 0.879 |
+Cubren la carga de datos (shape esperado), la construcción del preprocesador y del
+pipeline, y las utilidades de ajuste de umbral.
 
-> El recall de la clase positiva (0.879) es clave: minimiza falsos negativos, lo más
-> importante en un contexto de salud mental.
+## Resultados
+
+### Baseline vs. modelo ajustado (umbral 0.5, test)
+
+Tras el `GridSearchCV`/`RandomizedSearchCV` (optimizando F1), el mejor modelo sigue siendo
+**Logistic Regression** (`C=0.01`). El ajuste apenas mueve las métricas frente al baseline
+—ya era muy competitivo—, con una ligera mejora en recall:
+
+| Métrica | Baseline (`02`) | Ajustado (`03`) |
+|---------|:---------------:|:---------------:|
+| Accuracy | 0.844 | 0.844 |
+| F1 | 0.868 | 0.869 |
+| ROC-AUC | 0.918 | 0.919 |
+| Recall (clase 1) | 0.879 | 0.881 |
+
+### Ajuste del umbral de decisión (test)
+
+La mayor ganancia práctica viene de **mover el umbral** por debajo de 0.5 para reducir los
+**falsos negativos** (estudiantes en riesgo no detectados), el error más costoso en salud mental.
+La curva precision-recall (`03_tuning.ipynb`) hace explícito el equilibrio:
+
+| Estrategia | Umbral | Precisión | Recall | F1 |
+|------------|:------:|:---------:|:------:|:--:|
+| Por defecto | 0.50 | 0.856 | 0.881 | 0.869 |
+| **Precisión ≥ 0.80** (recomendada) | 0.33 | 0.800 | **0.944** | 0.866 |
+| Óptimo F2 | 0.18 | 0.741 | 0.978 | 0.843 |
+
+> Con el umbral recomendado (0.33) el recall sube de 0.881 a **0.944** sacrificando solo
+> ~0.003 de F1, y los **falsos negativos** en test caen de ~388 a ~184 (**≈ la mitad**).
+> El artefacto `models/tuned_pipeline.joblib` guarda el pipeline **junto con el umbral**,
+> para que la regla de decisión viaje con el modelo.
+
+> ⚠️ **Nota ética:** priorizar el recall busca no dejar fuera a quien podría necesitar apoyo.
+> Aun así, el modelo es una herramienta de **análisis estadístico** con fines académicos,
+> **no** un diagnóstico clínico; cualquier uso real exige validación profesional y supervisión humana.
