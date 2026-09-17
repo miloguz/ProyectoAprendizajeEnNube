@@ -25,8 +25,8 @@ coverage.xml
 .ipynb_checkpoints/
 */.ipynb_checkpoints/
 
-# uv
-uv.lock
+# uv — el lockfile SÍ se versiona (reproducibilidad); solo ignoramos el venv
+# (ver .venv/ arriba)
 
 # Data (procesada / grande — el raw se versiona aparte si se desea)
 data/processed/*
