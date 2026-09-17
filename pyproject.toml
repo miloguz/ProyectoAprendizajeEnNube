@@ -12,6 +12,7 @@ dependencies = [
     "scikit-learn",
     "jupyter",
     "ipykernel",
+    "joblib>=1.6.0",
 ]
 
 [dependency-groups]

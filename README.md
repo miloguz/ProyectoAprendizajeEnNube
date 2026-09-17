@@ -64,8 +64,23 @@ uv run jupyter lab notebooks/01_eda.ipynb
 
 - [x] Scaffolding del proyecto
 - [x] Descarga del dataset
-- [x] Análisis exploratorio (EDA)
-- [ ] Preprocesamiento (encoding + escalado)
-- [ ] Modelado (Logistic Regression, Random Forest, etc.)
-- [ ] Evaluación (matriz de confusión, ROC-AUC, recall)
-- [ ] Interpretación de resultados
+- [x] Análisis exploratorio (EDA) — `notebooks/01_eda.ipynb`
+- [x] Preprocesamiento (imputación + encoding + escalado) — `src/features/engineering.py`
+- [x] Modelado (Logistic Regression, Decision Tree, Random Forest) — `src/models/train.py`
+- [x] Evaluación (matriz de confusión, ROC-AUC, recall) — `notebooks/02_modeling.ipynb`
+- [ ] Ajuste de hiperparámetros (GridSearch)
+- [ ] Seguimiento de experimentos (MLflow) / despliegue
+
+## Resultados (baseline)
+
+Mejor modelo: **Logistic Regression** (ganador por F1 en validación cruzada).
+
+| Métrica | Valor (test) |
+|---------|--------------|
+| Accuracy | 0.844 |
+| F1 | 0.868 |
+| ROC-AUC | 0.918 |
+| Recall (clase 1) | 0.879 |
+
+> El recall de la clase positiva (0.879) es clave: minimiza falsos negativos, lo más
+> importante en un contexto de salud mental.
