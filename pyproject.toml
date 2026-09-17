@@ -1,0 +1,37 @@
+[project]
+name = "student-depression-mlops"
+version = "0.1.0"
+description = "Predicción de riesgo de depresión en estudiantes — proyecto de especialización en Ciencia de Datos e IA"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "pandas",
+    "numpy",
+    "matplotlib",
+    "seaborn",
+    "scikit-learn",
+    "jupyter",
+    "ipykernel",
+]
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "ruff",
+    "black",
+    "pre-commit",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.black]
+line-length = 100
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
