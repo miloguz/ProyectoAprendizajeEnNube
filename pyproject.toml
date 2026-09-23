@@ -17,6 +17,8 @@ dependencies = [
     "prefect>=3.8.6",
     "fastapi>=0.141.1",
     "uvicorn[standard]>=0.53.0",
+    "streamlit>=1.64.0",
+    "requests>=2.34.2",
 ]
 
 [dependency-groups]
