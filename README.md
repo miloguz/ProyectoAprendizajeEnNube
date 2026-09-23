@@ -33,12 +33,13 @@ student-depression-mlops/
 ├── notebooks/
 │   ├── 01_eda.ipynb          # Análisis exploratorio de datos
 │   ├── 02_modeling.ipynb     # Modelado y evaluación (baseline)
-│   └── 03_tuning.ipynb       # Ajuste de hiperparámetros y del umbral
+│   ├── 03_tuning.ipynb       # Ajuste de hiperparámetros y del umbral
+│   └── 04_mlflow_tracking.ipynb  # Seguimiento de experimentos con MLflow
 ├── src/
-│   ├── config/               # Constantes y rutas (constants.py)
+│   ├── config/               # Constantes/rutas (constants.py) y MLflow (mlflow_setup.py)
 │   ├── data/                 # Carga (loaders.py) y utilidades (utils.py)
 │   ├── features/             # Feature engineering (engineering.py)
-│   └── models/               # Entrenamiento y evaluación
+│   └── models/               # Entrenamiento, evaluación y tracking (train.py, train_mlflow.py)
 ├── tests/                    # Pruebas unitarias
 ├── pyproject.toml            # Dependencias (gestionadas con uv)
 └── .python-version           # Python 3.14
@@ -73,7 +74,8 @@ uv run jupyter lab notebooks/01_eda.ipynb
 - [x] Ajuste de hiperparámetros (GridSearch / RandomizedSearch, optimizando F1) — `notebooks/03_tuning.ipynb`
 - [x] Ajuste del umbral de decisión (curva precision-recall, prioriza recall) — `notebooks/03_tuning.ipynb`
 - [x] Pruebas unitarias (`uv run pytest`) — `tests/`
-- [ ] Seguimiento de experimentos (MLflow) / despliegue
+- [x] Seguimiento de experimentos (MLflow) — `src/models/train_mlflow.py`, `notebooks/04_mlflow_tracking.ipynb`
+- [ ] Despliegue
 
 ## Tests
 
@@ -119,3 +121,46 @@ La curva precision-recall (`03_tuning.ipynb`) hace explícito el equilibrio:
 > ⚠️ **Nota ética:** priorizar el recall busca no dejar fuera a quien podría necesitar apoyo.
 > Aun así, el modelo es una herramienta de **análisis estadístico** con fines académicos,
 > **no** un diagnóstico clínico; cualquier uso real exige validación profesional y supervisión humana.
+
+## Seguimiento de experimentos (MLflow)
+
+Los experimentos (modelos base y sus versiones tuneadas) se registran en
+[MLflow](https://mlflow.org/) con un backend de tracking **local** (`./mlruns`, no se sube
+al repo). La configuración vive en `src/config/mlflow_setup.py` (URI de tracking +
+experimento `student-depression`) y el entrenamiento con logging en
+`src/models/train_mlflow.py`, que reutiliza `build_pipeline`/`evaluate` de `train.py`.
+
+Para cada modelo se registra en MLflow:
+
+- **Parámetros:** nombre del modelo e hiperparámetros del estimador.
+- **Métricas** (test): accuracy, F1, ROC-AUC y recall de la clase positiva.
+- **El pipeline completo** (preprocesador + modelo) vía `mlflow.sklearn.log_model`.
+- **Artefactos:** matriz de confusión y curva ROC como PNG.
+
+### Cómo generar los runs
+
+```bash
+uv run python -m src.models.train_mlflow
+```
+
+O de forma interactiva, con comparación de runs incluida, en
+`notebooks/04_mlflow_tracking.ipynb`.
+
+### Cómo ver la UI
+
+```bash
+uv run mlflow ui --backend-store-uri ./mlruns
+```
+
+Y abrir **http://localhost:5000** — ahí se comparan runs (parámetros, métricas,
+artefactos) entre modelos base (`stage=baseline`) y ajustados (`stage=tuned`).
+
+> En Windows, MLflow ≥ 3 exige la variable `MLFLOW_ALLOW_FILE_STORE=true` para seguir
+> usando `./mlruns` como backend de archivos (ya se fija automáticamente al importar
+> `mlflow_setup.py`). Si se lanza `mlflow ui` desde una terminal nueva y da error de
+> backend, fijarla a mano:
+>
+> ```powershell
+> $env:MLFLOW_ALLOW_FILE_STORE = "true"
+> uv run mlflow ui --backend-store-uri ./mlruns
+> ```
