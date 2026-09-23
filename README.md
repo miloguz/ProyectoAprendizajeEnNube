@@ -41,11 +41,13 @@ student-depression-mlops/
 │   ├── features/             # Feature engineering (engineering.py)
 │   ├── models/                # Entrenamiento, evaluación y tracking (train.py, train_mlflow.py)
 │   ├── orchestration/         # Pipeline de ML orquestado con Prefect (flow.py)
-│   └── api/                   # API de predicción con FastAPI (main.py, schemas.py)
-├── tests/                    # Pruebas unitarias (datos, features, modelos, orquestación, API)
+│   ├── api/                   # API de predicción con FastAPI (main.py, schemas.py)
+│   └── app/                   # Interfaz de predicción con Streamlit (streamlit_app.py)
+├── tests/                    # Pruebas unitarias (datos, features, modelos, orquestación, API, app)
 ├── models/                   # Artefactos entrenados (.joblib, no versionados en git)
 ├── Dockerfile                # Imagen de la API de predicción
-├── pyproject.toml            # Dependencias (gestionadas con uv)
+├── CHANGELOG.md              # Historial de versiones (Keep a Changelog + SemVer)
+├── pyproject.toml            # Dependencias y versión del proyecto (gestionado con uv)
 └── .python-version           # Python 3.14
 ```
 
@@ -82,6 +84,8 @@ uv run jupyter lab notebooks/01_eda.ipynb
 - [x] Orquestación del pipeline completo (Prefect) — `src/orchestration/flow.py`
 - [x] Registro y versionado del modelo candidato (MLflow Model Registry)
 - [x] Despliegue como API + Docker — `src/api/`, `Dockerfile`
+- [x] Interfaz de predicción (Streamlit) — `src/app/streamlit_app.py`
+- [x] Versionado de código y deploy (SemVer, CHANGELOG, imagen Docker versionada)
 - [ ] Monitoreo (fuera del alcance de esta entrega)
 
 ## Tests
@@ -92,8 +96,9 @@ uv run pytest
 
 Cubren la carga de datos (shape esperado), la construcción del preprocesador y del
 pipeline, las utilidades de ajuste de umbral, las tareas de orquestación (Prefect, vía
-`.fn` para no depender de un servidor corriendo) y la API (FastAPI `TestClient`, con un
-pipeline pequeño de prueba inyectado por `MODEL_PATH`).
+`.fn` para no depender de un servidor corriendo), la API (FastAPI `TestClient`, con un
+pipeline pequeño de prueba inyectado por `MODEL_PATH`) y la lógica no visual de la app
+de Streamlit (carga de categorías desde el dataset).
 
 ## Resultados
 
@@ -172,7 +177,7 @@ uv run mlflow ui --backend-store-uri sqlite:///mlflow.db --default-artifact-root
 
 Y abrir **http://localhost:5000** — ahí se comparan runs (parámetros, métricas,
 artefactos) y se ve el **Model Registry** con las versiones de
-`student-depression-classifier` (alias `candidate` en la última registrada por el
+`student-depression-classifier` (alias `MasterModel` en la última registrada por el
 pipeline de orquestación).
 
 ## Orquestación del pipeline (Prefect)
@@ -191,7 +196,7 @@ reimplementa, solo las orquesta:
 | Entrenamiento y optimización | `train-and-tune` | `GridSearchCV`/`RandomizedSearchCV` por modelo, optimizando F1 |
 | Evaluación + registro | `evaluate-and-log` | Evalúa en test y loguea el run en MLflow (parámetros, métricas, pipeline) |
 | Selección del candidato | `select-candidate` | Elige el modelo con mayor F1 en test |
-| Registro y versionado | `register-candidate` | Lo versiona en el MLflow Model Registry (alias `candidate`) y lo guarda como `models/candidate_pipeline.joblib`, listo para servir |
+| Registro y versionado | `register-candidate` | Lo versiona en el MLflow Model Registry (alias `MasterModel`) y lo guarda como `models/candidate_pipeline.joblib`, listo para servir |
 
 ### Cómo correrlo
 
@@ -231,7 +236,7 @@ relevante en un dominio de salud mental donde explicar una predicción importa. 
 artefacto candidato (`models/candidate_pipeline.joblib`) guarda el pipeline **junto con
 el umbral de decisión**, para que la regla de decisión viaje con el modelo; también
 queda versionado en el MLflow Model Registry (`student-depression-classifier`, alias
-`candidate`).
+`MasterModel`).
 
 ## Despliegue (API + Docker)
 
@@ -272,8 +277,51 @@ El artefacto `models/candidate_pipeline.joblib` **no se versiona en git**; hay q
 generarlo antes de construir la imagen (ver el flow de orquestación arriba).
 
 ```bash
-docker build -t student-depression-api .
-docker run -p 8000:8000 student-depression-api
+docker build -t student-depression-api:0.2.0 -t student-depression-api:latest .
+docker run -p 8000:8000 student-depression-api:0.2.0
 ```
 
-La API queda igual disponible en **http://localhost:8000**.
+La API queda igual disponible en **http://localhost:8000**. El contenedor corre como
+usuario no-root y trae un `HEALTHCHECK` nativo contra `GET /health`
+(`docker inspect --format='{{json .State.Health}}' <container>` para verlo).
+
+## Interfaz de predicción (Streamlit)
+
+Además de la API, hay una interfaz gráfica en [Streamlit](https://streamlit.io/)
+(`src/app/streamlit_app.py`) pensada para uso no técnico: un formulario con las mismas
+variables del estudiante que pide la API, que al enviarse llama a `POST /predict` y
+muestra el veredicto (riesgo sí/no, probabilidad, umbral aplicado) con la misma nota
+ética de siempre — **es una estimación estadística, no un diagnóstico clínico**.
+
+Requiere la API corriendo (local o Docker):
+
+```bash
+uv run uvicorn src.api.main:app --reload          # terminal 1
+uv run streamlit run src/app/streamlit_app.py     # terminal 2
+```
+
+Se abre en **http://localhost:8501**. Si la API corre en otra URL (p. ej. dentro de
+Docker con otro host/puerto), se apunta con la variable de entorno:
+
+```bash
+STREAMLIT_API_URL=http://localhost:8000 uv run streamlit run src/app/streamlit_app.py
+```
+
+## Versionado
+
+El proyecto sigue [Semantic Versioning](https://semver.org/lang/es/) y
+[conventional commits](https://www.conventionalcommits.org/), con tres cosas
+versionadas de forma trazable entre sí:
+
+- **Código:** la versión vive en `pyproject.toml` (`version`) y queda registrada en
+  `CHANGELOG.md` ([Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/)) por cada
+  release; se marcan con un tag de git (`git tag vX.Y.Z`).
+- **Deploy (imagen Docker):** se construye etiquetada con la misma versión del proyecto
+  (`student-depression-api:0.2.0`, además de `latest`), para saber exactamente qué
+  versión del código corre en un contenedor dado. La API expone esa versión en runtime
+  vía `GET /health` (leída de `pyproject.toml` con `importlib.metadata`, una única
+  fuente de verdad — nunca queda hardcodeada ni desincronizada).
+- **Modelo (MLflow Model Registry):** cada corrida del pipeline de orquestación crea una
+  nueva versión de `student-depression-classifier` (v1, v2, ...); el alias
+  **`MasterModel`** siempre apunta a la versión vigente — la que sirven la API, Docker y
+  Streamlit —, sin tener que cambiar código cuando se re-entrena.

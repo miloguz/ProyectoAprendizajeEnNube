@@ -21,13 +21,19 @@ y el proyecto sigue [Semantic Versioning](https://semver.org/lang/es/).
   `POST /predict`, sirviendo el modelo candidato.
 - **Despliegue con Docker**: `Dockerfile` para la API, con usuario no-root,
   `HEALTHCHECK` nativo e imagen etiquetada por versión.
-- Tests de orquestación y de la API (`tests/test_orchestration.py`,
-  `tests/test_api.py`).
+- **Interfaz de predicción con Streamlit** (`src/app/streamlit_app.py`):
+  formulario que consume `POST /predict` de la API y muestra el veredicto
+  de riesgo con su probabilidad y umbral aplicado.
+- Tests de orquestación, de la API y de la app de Streamlit
+  (`tests/test_orchestration.py`, `tests/test_api.py`,
+  `tests/test_streamlit_app.py`).
 
 ### Changed
 
 - La versión del proyecto (`pyproject.toml`) pasa a ser la fuente única de
   verdad para la versión reportada por la API (`/health`, título OpenAPI).
+- El alias del modelo en el MLflow Model Registry pasa a llamarse
+  `MasterModel` (antes `candidate`).
 
 ## [0.1.0] - 2026-09-16
 
