@@ -1,0 +1,17 @@
+.venv/
+.git/
+.github/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ipynb_checkpoints/
+notebooks/
+tests/
+data/
+mlruns/
+mlartifacts/
+mlflow.db
+.prefect/
+*.log
+.dockerignore
+Dockerfile
