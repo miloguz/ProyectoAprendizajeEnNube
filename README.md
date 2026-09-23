@@ -31,16 +31,20 @@ student-depression-mlops/
 │   ├── raw/                  # Dataset original (student_depression.csv)
 │   └── processed/            # Datos limpios / transformados
 ├── notebooks/
-│   ├── 01_eda.ipynb          # Análisis exploratorio de datos
-│   ├── 02_modeling.ipynb     # Modelado y evaluación (baseline)
-│   ├── 03_tuning.ipynb       # Ajuste de hiperparámetros y del umbral
+│   ├── 01_eda.ipynb              # Análisis exploratorio de datos
+│   ├── 02_modeling.ipynb         # Modelado y evaluación (baseline)
+│   ├── 03_tuning.ipynb           # Ajuste de hiperparámetros y del umbral
 │   └── 04_mlflow_tracking.ipynb  # Seguimiento de experimentos con MLflow
 ├── src/
 │   ├── config/               # Constantes/rutas (constants.py) y MLflow (mlflow_setup.py)
 │   ├── data/                 # Carga (loaders.py) y utilidades (utils.py)
 │   ├── features/             # Feature engineering (engineering.py)
-│   └── models/               # Entrenamiento, evaluación y tracking (train.py, train_mlflow.py)
-├── tests/                    # Pruebas unitarias
+│   ├── models/                # Entrenamiento, evaluación y tracking (train.py, train_mlflow.py)
+│   ├── orchestration/         # Pipeline de ML orquestado con Prefect (flow.py)
+│   └── api/                   # API de predicción con FastAPI (main.py, schemas.py)
+├── tests/                    # Pruebas unitarias (datos, features, modelos, orquestación, API)
+├── models/                   # Artefactos entrenados (.joblib, no versionados en git)
+├── Dockerfile                # Imagen de la API de predicción
 ├── pyproject.toml            # Dependencias (gestionadas con uv)
 └── .python-version           # Python 3.14
 ```
@@ -75,7 +79,10 @@ uv run jupyter lab notebooks/01_eda.ipynb
 - [x] Ajuste del umbral de decisión (curva precision-recall, prioriza recall) — `notebooks/03_tuning.ipynb`
 - [x] Pruebas unitarias (`uv run pytest`) — `tests/`
 - [x] Seguimiento de experimentos (MLflow) — `src/models/train_mlflow.py`, `notebooks/04_mlflow_tracking.ipynb`
-- [ ] Despliegue
+- [x] Orquestación del pipeline completo (Prefect) — `src/orchestration/flow.py`
+- [x] Registro y versionado del modelo candidato (MLflow Model Registry)
+- [x] Despliegue como API + Docker — `src/api/`, `Dockerfile`
+- [ ] Monitoreo (fuera del alcance de esta entrega)
 
 ## Tests
 
@@ -84,7 +91,9 @@ uv run pytest
 ```
 
 Cubren la carga de datos (shape esperado), la construcción del preprocesador y del
-pipeline, y las utilidades de ajuste de umbral.
+pipeline, las utilidades de ajuste de umbral, las tareas de orquestación (Prefect, vía
+`.fn` para no depender de un servidor corriendo) y la API (FastAPI `TestClient`, con un
+pipeline pequeño de prueba inyectado por `MODEL_PATH`).
 
 ## Resultados
 
@@ -124,11 +133,19 @@ La curva precision-recall (`03_tuning.ipynb`) hace explícito el equilibrio:
 
 ## Seguimiento de experimentos (MLflow)
 
-Los experimentos (modelos base y sus versiones tuneadas) se registran en
-[MLflow](https://mlflow.org/) con un backend de tracking **local** (`./mlruns`, no se sube
-al repo). La configuración vive en `src/config/mlflow_setup.py` (URI de tracking +
-experimento `student-depression`) y el entrenamiento con logging en
-`src/models/train_mlflow.py`, que reutiliza `build_pipeline`/`evaluate` de `train.py`.
+Los experimentos (modelos base, versiones tuneadas y los del pipeline orquestado) se
+registran en [MLflow](https://mlflow.org/) con un backend **local**, dentro del proyecto
+(nada se sube al repo — ver `.gitignore`):
+
+- **Tracking store** (runs, params, métricas, *Model Registry*): SQLite en `mlflow.db`.
+  El file store puro (`./mlruns` como backend) no soporta el Model Registry, necesario
+  para versionar el modelo candidato.
+- **Artifact store** (pipelines, gráficos): carpeta `mlruns/`.
+
+La configuración vive en `src/config/mlflow_setup.py` (`set_tracking()`, experimento
+`student-depression`, nombre del modelo registrado `student-depression-classifier`).
+`src/models/train_mlflow.py` (modelos base + tuneados) y `src/orchestration/flow.py`
+(pipeline orquestado, ver abajo) reutilizan esa configuración.
 
 Para cada modelo se registra en MLflow:
 
@@ -144,23 +161,119 @@ uv run python -m src.models.train_mlflow
 ```
 
 O de forma interactiva, con comparación de runs incluida, en
-`notebooks/04_mlflow_tracking.ipynb`.
+`notebooks/04_mlflow_tracking.ipynb`. El pipeline orquestado (`src/orchestration/flow.py`)
+también genera runs, además de tunear y registrar el modelo candidato.
 
 ### Cómo ver la UI
 
 ```bash
-uv run mlflow ui --backend-store-uri ./mlruns
+uv run mlflow ui --backend-store-uri sqlite:///mlflow.db --default-artifact-root ./mlruns
 ```
 
 Y abrir **http://localhost:5000** — ahí se comparan runs (parámetros, métricas,
-artefactos) entre modelos base (`stage=baseline`) y ajustados (`stage=tuned`).
+artefactos) y se ve el **Model Registry** con las versiones de
+`student-depression-classifier` (alias `candidate` en la última registrada por el
+pipeline de orquestación).
 
-> En Windows, MLflow ≥ 3 exige la variable `MLFLOW_ALLOW_FILE_STORE=true` para seguir
-> usando `./mlruns` como backend de archivos (ya se fija automáticamente al importar
-> `mlflow_setup.py`). Si se lanza `mlflow ui` desde una terminal nueva y da error de
-> backend, fijarla a mano:
->
-> ```powershell
-> $env:MLFLOW_ALLOW_FILE_STORE = "true"
-> uv run mlflow ui --backend-store-uri ./mlruns
-> ```
+## Orquestación del pipeline (Prefect)
+
+`src/orchestration/flow.py` encadena con [Prefect](https://www.prefect.io/) **todo el
+ciclo de vida de ML** en un único flow (`student-depression-ml-pipeline`), reutilizando
+las funciones ya existentes en `src/data`, `src/features` y `src/models` — no las
+reimplementa, solo las orquesta:
+
+| Etapa | Tarea (Prefect) | Qué hace |
+|-------|------------------|----------|
+| Adquisición de datos | `acquire-data` | Valida que exista el CSV crudo y lo carga |
+| Procesamiento | `process-data` | Descarta `id`, separa features (X) de target (y) |
+| — | `split-train-test` | Split estratificado train/test |
+| Feature engineering | *(embebido)* | `ColumnTransformer` dentro del `Pipeline` de cada modelo — se recalcula por fold, sin fuga de datos |
+| Entrenamiento y optimización | `train-and-tune` | `GridSearchCV`/`RandomizedSearchCV` por modelo, optimizando F1 |
+| Evaluación + registro | `evaluate-and-log` | Evalúa en test y loguea el run en MLflow (parámetros, métricas, pipeline) |
+| Selección del candidato | `select-candidate` | Elige el modelo con mayor F1 en test |
+| Registro y versionado | `register-candidate` | Lo versiona en el MLflow Model Registry (alias `candidate`) y lo guarda como `models/candidate_pipeline.joblib`, listo para servir |
+
+### Cómo correrlo
+
+Requiere un servidor de Prefect local (una sola vez, en otra terminal):
+
+```bash
+uv run prefect server start
+```
+
+Y luego, en la terminal del proyecto:
+
+```bash
+uv run python -m src.orchestration.flow
+```
+
+El dashboard de Prefect queda disponible en **http://localhost:4200** (estado de cada
+run, logs por tarea, reintentos). Al terminar, imprime el modelo candidato elegido y la
+ruta del artefacto listo para servir.
+
+## Modelo candidato
+
+El pipeline de orquestación entrena y tunea los tres modelos (`Logistic Regression`,
+`Decision Tree`, `Random Forest`) y elige como **candidato a producción** el de mayor
+**F1 en test** — en las corridas realizadas, consistentemente **Logistic Regression**
+(`C=0.01`), con:
+
+| Métrica (test) | Valor |
+|----------------|:-----:|
+| F1 | 0.868 |
+| ROC-AUC | 0.919 |
+| Recall (clase 1) | 0.881 |
+| Umbral aplicado | ~0.33 (recall máx. con precisión ≥ 0.80) |
+
+Se prefiere sobre Random Forest (F1 CV ligeramente menor y sin ventaja práctica) y sobre
+Decision Tree (F1 más bajo) por ser, además, el más simple e interpretable de los tres —
+relevante en un dominio de salud mental donde explicar una predicción importa. El
+artefacto candidato (`models/candidate_pipeline.joblib`) guarda el pipeline **junto con
+el umbral de decisión**, para que la regla de decisión viaje con el modelo; también
+queda versionado en el MLflow Model Registry (`student-depression-classifier`, alias
+`candidate`).
+
+## Despliegue (API + Docker)
+
+El modelo candidato se sirve como un **web-service con API** (FastAPI), empaquetado en
+**Docker**. El alcance llega hasta aquí — **sin monitoreo**.
+
+### Localmente
+
+```bash
+uv run python -m src.orchestration.flow   # genera models/candidate_pipeline.joblib
+uv run uvicorn src.api.main:app --reload
+```
+
+- `GET /health` — estado del servicio y métricas del modelo cargado.
+- `POST /predict` — recibe las features de un estudiante y devuelve la predicción.
+- Documentación interactiva (Swagger UI) en **http://localhost:8000/docs**.
+
+Ejemplo:
+
+```bash
+curl -X POST http://localhost:8000/predict \
+  -H "Content-Type: application/json" \
+  -d '{
+    "Gender": "Male", "Age": 24, "City": "Kalyan", "Profession": "Student",
+    "Academic Pressure": 4.0, "Work Pressure": 0.0, "CGPA": 6.5,
+    "Study Satisfaction": 2.0, "Job Satisfaction": 0.0,
+    "Sleep Duration": "Less than 5 hours", "Dietary Habits": "Unhealthy",
+    "Degree": "B.Tech", "Have you ever had suicidal thoughts ?": "Yes",
+    "Work/Study Hours": 10.0, "Financial Stress": 5.0,
+    "Family History of Mental Illness": "Yes"
+  }'
+# {"depression_risk":1,"probability":0.99,"threshold":0.33,"model_name":"Logistic Regression"}
+```
+
+### Con Docker
+
+El artefacto `models/candidate_pipeline.joblib` **no se versiona en git**; hay que
+generarlo antes de construir la imagen (ver el flow de orquestación arriba).
+
+```bash
+docker build -t student-depression-api .
+docker run -p 8000:8000 student-depression-api
+```
+
+La API queda igual disponible en **http://localhost:8000**.
