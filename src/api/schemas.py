@@ -48,8 +48,9 @@ class PredictionResponse(BaseModel):
 
 
 class HealthResponse(BaseModel):
-    """Estado del servicio y del modelo cargado."""
+    """Estado del servicio, versión desplegada y del modelo cargado."""
 
     status: str
+    version: str
     model_name: str | None = None
     metrics: dict | None = None

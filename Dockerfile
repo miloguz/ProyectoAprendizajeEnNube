@@ -6,8 +6,12 @@
 #
 #   uv run prefect server start &
 #   uv run python -m src.orchestration.flow
-#   docker build -t student-depression-api .
-#   docker run -p 8000:8000 student-depression-api
+#   docker build -t student-depression-api:0.2.0 -t student-depression-api:latest .
+#   docker run -p 8000:8000 student-depression-api:0.2.0
+#
+# El tag de versión (0.2.0) debe coincidir con `version` en pyproject.toml —
+# así la imagen desplegada queda trazable a una versión exacta del código
+# (ver /health, que la reporta en runtime).
 
 FROM python:3.12-slim
 
@@ -30,6 +34,13 @@ COPY models/candidate_pipeline.joblib ./models/candidate_pipeline.joblib
 
 RUN uv sync --frozen --no-dev
 
+# Buena práctica de seguridad: no correr el proceso como root dentro del contenedor.
+RUN useradd --create-home --uid 1000 appuser && chown -R appuser:appuser /app
+USER appuser
+
 EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+    CMD python -c "import urllib.request as u, sys; sys.exit(0 if u.urlopen('http://localhost:8000/health', timeout=3).status == 200 else 1)"
 
 CMD ["uv", "run", "uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8000"]

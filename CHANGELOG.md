@@ -1,0 +1,41 @@
+# Changelog
+
+Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/),
+y el proyecto sigue [Semantic Versioning](https://semver.org/lang/es/).
+
+## [0.2.0] - 2026-09-22
+
+### Added
+
+- Seguimiento de experimentos con **MLflow** (`src/config/mlflow_setup.py`,
+  `src/models/train_mlflow.py`, `notebooks/04_mlflow_tracking.ipynb`).
+- Backend de tracking en **SQLite** (`mlflow.db`) para habilitar el *Model
+  Registry* de MLflow (el file store puro no lo soporta).
+- **Orquestación del pipeline de ML con Prefect** (`src/orchestration/flow.py`):
+  adquisición de datos, procesamiento, feature engineering, entrenamiento y
+  optimización de hiperparámetros, evaluación, y registro/versionado del
+  modelo candidato.
+- Selección automática del **modelo candidato** (mayor F1 en test) y su
+  versionado en el MLflow Model Registry bajo el alias `MasterModel`.
+- **API de predicción** con FastAPI (`src/api/`): `GET /health`,
+  `POST /predict`, sirviendo el modelo candidato.
+- **Despliegue con Docker**: `Dockerfile` para la API, con usuario no-root,
+  `HEALTHCHECK` nativo e imagen etiquetada por versión.
+- Tests de orquestación y de la API (`tests/test_orchestration.py`,
+  `tests/test_api.py`).
+
+### Changed
+
+- La versión del proyecto (`pyproject.toml`) pasa a ser la fuente única de
+  verdad para la versión reportada por la API (`/health`, título OpenAPI).
+
+## [0.1.0] - 2026-09-16
+
+### Added
+
+- Scaffolding inicial del proyecto y análisis exploratorio de datos (EDA).
+- Preprocesamiento (imputación, escalado, one-hot) y modelado (Logistic
+  Regression, Decision Tree, Random Forest); baseline F1=0.868, ROC-AUC=0.918.
+- Ajuste de hiperparámetros (`GridSearchCV`/`RandomizedSearchCV`, optimizando
+  F1) y ajuste del umbral de decisión (recall) vía curva precision-recall.
+- Pruebas unitarias iniciales (`tests/`).

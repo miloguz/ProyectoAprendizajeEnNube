@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import os
 from contextlib import asynccontextmanager
+from importlib.metadata import PackageNotFoundError, version as pkg_version
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +26,12 @@ from src.config.constants import MODELS_DIR
 
 DEFAULT_MODEL_PATH = MODELS_DIR / "candidate_pipeline.joblib"
 MODEL_PATH = Path(os.environ.get("MODEL_PATH", DEFAULT_MODEL_PATH))
+
+try:
+    # Única fuente de verdad: la versión declarada en pyproject.toml.
+    APP_VERSION = pkg_version("student-depression-mlops")
+except PackageNotFoundError:
+    APP_VERSION = "0.0.0-dev"
 
 model_state: dict[str, Any] = {}
 
@@ -53,17 +60,18 @@ app = FastAPI(
         "académicos, de estilo de vida y de salud mental. Herramienta de "
         "análisis estadístico con fines académicos, NO un diagnóstico clínico."
     ),
-    version="0.1.0",
+    version=APP_VERSION,
     lifespan=lifespan,
 )
 
 
 @app.get("/health", response_model=HealthResponse)
 def health() -> HealthResponse:
-    """Estado del servicio y metadatos del modelo cargado."""
+    """Estado del servicio, versión desplegada y metadatos del modelo cargado."""
     loaded = "pipeline" in model_state
     return HealthResponse(
         status="ok" if loaded else "model not loaded",
+        version=APP_VERSION,
         model_name=model_state.get("model_name"),
         metrics=model_state.get("metrics"),
     )
