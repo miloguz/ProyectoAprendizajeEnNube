@@ -39,6 +39,10 @@ models/*.joblib
 # MLflow
 mlruns/
 mlartifacts/
+mlflow.db
+
+# Prefect
+.prefect/
 
 # OS
 .DS_Store
@@ -47,3 +51,6 @@ Thumbs.db
 # IDE
 .vscode/
 .idea/
+
+# Logs locales de procesos en segundo plano (servidores de desarrollo)
+*.log

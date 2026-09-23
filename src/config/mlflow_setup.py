@@ -1,29 +1,43 @@
-"""Configuración de MLflow para el seguimiento de experimentos."""
+"""Configuración de MLflow para el seguimiento y registro de experimentos.
+
+Usa un backend **local** de dos partes, ambas dentro del proyecto:
+
+- **Tracking store** (runs, params, métricas, *Model Registry*): SQLite en
+  ``mlflow.db``. El file store puro (``./mlruns`` como backend) no soporta el
+  Model Registry, necesario para versionar el modelo candidato.
+- **Artifact store** (pipelines, gráficos): carpeta ``mlruns/`` (como antes).
+"""
 
 from __future__ import annotations
 
-import os
+import mlflow
 
-# MLflow >= 3 puso el file store (p.ej. "./mlruns") en modo mantenimiento y
-# exige este opt-out explícito para seguir usándolo como backend local.
-os.environ.setdefault("MLFLOW_ALLOW_FILE_STORE", "true")
+from src.config.constants import PROJECT_ROOT
 
-import mlflow  # noqa: E402 (debe ir después de fijar MLFLOW_ALLOW_FILE_STORE)
-
-from src.config.constants import PROJECT_ROOT  # noqa: E402
-
-MLFLOW_TRACKING_URI = (PROJECT_ROOT / "mlruns").as_uri()
+MLFLOW_DB_PATH = PROJECT_ROOT / "mlflow.db"
+MLFLOW_TRACKING_URI = f"sqlite:///{MLFLOW_DB_PATH.as_posix()}"
+MLFLOW_ARTIFACT_LOCATION = (PROJECT_ROOT / "mlruns").as_uri()
 EXPERIMENT_NAME = "student-depression"
+REGISTERED_MODEL_NAME = "student-depression-classifier"
 
 
 def set_tracking(
-    tracking_uri: str = MLFLOW_TRACKING_URI, experiment_name: str = EXPERIMENT_NAME
+    tracking_uri: str = MLFLOW_TRACKING_URI,
+    experiment_name: str = EXPERIMENT_NAME,
+    artifact_location: str = MLFLOW_ARTIFACT_LOCATION,
 ) -> None:
     """Configura la URI de tracking local y el experimento activo de MLflow.
 
+    Crea el experimento si no existe, fijando su ubicación de artefactos a
+    ``artifact_location``; si ya existe, solo lo activa (MLflow ignora
+    ``artifact_location`` en ese caso, como es habitual).
+
     Args:
-        tracking_uri: URI del backend de tracking (por defecto, ``./mlruns``).
+        tracking_uri: URI del backend de tracking (por defecto, ``sqlite:///mlflow.db``).
         experiment_name: Nombre del experimento a usar/crear.
+        artifact_location: Carpeta donde se guardan los artefactos del experimento.
     """
     mlflow.set_tracking_uri(tracking_uri)
+    if mlflow.get_experiment_by_name(experiment_name) is None:
+        mlflow.create_experiment(experiment_name, artifact_location=artifact_location)
     mlflow.set_experiment(experiment_name)
