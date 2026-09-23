@@ -26,7 +26,7 @@ from sklearn.metrics import recall_score
 from sklearn.model_selection import train_test_split
 
 from src.config.constants import MODELS_DIR, RANDOM_STATE, RAW_DATASET_PATH
-from src.config.mlflow_setup import REGISTERED_MODEL_NAME, set_tracking
+from src.config.mlflow_setup import MODEL_ALIAS, REGISTERED_MODEL_NAME, set_tracking
 from src.data.loaders import load_raw_data
 from src.features.engineering import split_X_y
 from src.models.train import evaluate, get_models, threshold_for_min_precision, tune_model
@@ -138,13 +138,14 @@ def select_candidate(results: list[dict]) -> dict:
 
 @task(name="register-candidate")
 def register_candidate(candidate: dict) -> str:
-    """Registra el candidato en el Model Registry de MLflow (alias ``candidate``)
-    y lo guarda como artefacto local listo para servir (API/Docker)."""
+    """Registra el candidato en el Model Registry de MLflow (alias ``MODEL_ALIAS``,
+    ver ``src/config/mlflow_setup.py``) y lo guarda como artefacto local listo
+    para servir (API/Docker)."""
     model_uri = f"runs:/{candidate['run_id']}/pipeline"
     mv = mlflow.register_model(model_uri, REGISTERED_MODEL_NAME)
 
     client = MlflowClient()
-    client.set_registered_model_alias(REGISTERED_MODEL_NAME, "candidate", mv.version)
+    client.set_registered_model_alias(REGISTERED_MODEL_NAME, MODEL_ALIAS, mv.version)
 
     MODELS_DIR.mkdir(exist_ok=True)
     artifact_path = MODELS_DIR / "candidate_pipeline.joblib"
@@ -167,9 +168,10 @@ def register_candidate(candidate: dict) -> str:
     )
 
     logger.info(
-        "Registrado %s v%s (alias 'candidate') y guardado en %s",
+        "Registrado %s v%s (alias '%s') y guardado en %s",
         REGISTERED_MODEL_NAME,
         mv.version,
+        MODEL_ALIAS,
         artifact_path,
     )
     return artifact_path.as_posix()

@@ -19,6 +19,9 @@ MLFLOW_TRACKING_URI = f"sqlite:///{MLFLOW_DB_PATH.as_posix()}"
 MLFLOW_ARTIFACT_LOCATION = (PROJECT_ROOT / "mlruns").as_uri()
 EXPERIMENT_NAME = "student-depression"
 REGISTERED_MODEL_NAME = "student-depression-classifier"
+# Alias que siempre apunta a la versión vigente del modelo candidato en el
+# Model Registry (lo que se sirve por API/Docker/Streamlit).
+MODEL_ALIAS = "MasterModel"
 
 
 def set_tracking(
