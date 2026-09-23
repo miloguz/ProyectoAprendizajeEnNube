@@ -36,6 +36,10 @@ data/processed/*
 models/*.pkl
 models/*.joblib
 
+# MLflow
+mlruns/
+mlartifacts/
+
 # OS
 .DS_Store
 Thumbs.db
