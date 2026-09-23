@@ -29,6 +29,13 @@ from src.data.loaders import load_raw_data
 
 API_URL = os.environ.get("STREAMLIT_API_URL", "http://localhost:8000")
 
+# El modelo se entrenó con las categorías originales del dataset (en inglés);
+# la UI se muestra en español traduciendo solo la ETIQUETA visible
+# (st.selectbox(..., format_func=...)) — el valor real que viaja a la API no
+# cambia, para no generar categorías fuera de dominio para el OneHotEncoder.
+GENDER_OPTIONS = ["Male", "Female"]
+GENDER_LABELS = {"Male": "Masculino", "Female": "Femenino"}
+
 SLEEP_DURATION_OPTIONS = [
     "Less than 5 hours",
     "5-6 hours",
@@ -36,9 +43,84 @@ SLEEP_DURATION_OPTIONS = [
     "More than 8 hours",
     "Others",
 ]
+SLEEP_DURATION_LABELS = {
+    "Less than 5 hours": "Menos de 5 horas",
+    "5-6 hours": "5-6 horas",
+    "7-8 hours": "7-8 horas",
+    "More than 8 hours": "Más de 8 horas",
+    "Others": "Otro",
+}
+
 DIETARY_HABITS_OPTIONS = ["Unhealthy", "Moderate", "Healthy", "Others"]
+DIETARY_HABITS_LABELS = {
+    "Unhealthy": "Poco saludables",
+    "Moderate": "Moderados",
+    "Healthy": "Saludables",
+    "Others": "Otros",
+}
+
 YES_NO_OPTIONS = ["No", "Yes"]
-GENDER_OPTIONS = ["Male", "Female"]
+YES_NO_LABELS = {"No": "No", "Yes": "Sí"}
+
+PROFESSION_LABELS = {
+    "Architect": "Arquitecto/a",
+    "Chef": "Chef",
+    "Civil Engineer": "Ingeniero/a Civil",
+    "Content Writer": "Redactor/a de Contenidos",
+    "Digital Marketer": "Especialista en Marketing Digital",
+    "Doctor": "Médico/a",
+    "Educational Consultant": "Consultor/a Educativo/a",
+    "Entrepreneur": "Emprendedor/a",
+    "Lawyer": "Abogado/a",
+    "Manager": "Gerente",
+    "Pharmacist": "Farmacéutico/a",
+    "Student": "Estudiante",
+    "Teacher": "Profesor/a",
+    "UX/UI Designer": "Diseñador/a UX/UI",
+}
+
+# Título completo en español + sigla original entre paréntesis (la sigla es
+# la que viaja a la API/modelo).
+DEGREE_LABELS = {
+    "B.Arch": "Arquitectura (B.Arch)",
+    "B.Com": "Comercio (B.Com)",
+    "B.Ed": "Educación (B.Ed)",
+    "B.Pharm": "Farmacia (B.Pharm)",
+    "B.Tech": "Ingeniería / Tecnología (B.Tech)",
+    "BA": "Artes y Humanidades (BA)",
+    "BBA": "Administración de Empresas (BBA)",
+    "BCA": "Aplicaciones de Computación (BCA)",
+    "BE": "Ingeniería (BE)",
+    "BHM": "Gestión Hotelera (BHM)",
+    "BSc": "Ciencias (BSc)",
+    "Class 12": "Bachillerato (grado 12)",
+    "LLB": "Derecho (LLB)",
+    "LLM": "Maestría en Derecho (LLM)",
+    "M.Com": "Maestría en Comercio (M.Com)",
+    "M.Ed": "Maestría en Educación (M.Ed)",
+    "M.Pharm": "Maestría en Farmacia (M.Pharm)",
+    "M.Tech": "Maestría en Ingeniería / Tecnología (M.Tech)",
+    "MA": "Maestría en Artes y Humanidades (MA)",
+    "MBA": "Maestría en Administración de Empresas (MBA)",
+    "MBBS": "Medicina (MBBS)",
+    "MCA": "Maestría en Aplicaciones de Computación (MCA)",
+    "MD": "Doctorado en Medicina (MD)",
+    "ME": "Maestría en Ingeniería (ME)",
+    "MHM": "Maestría en Gestión Hotelera (MHM)",
+    "MSc": "Maestría en Ciencias (MSc)",
+    "Others": "Otro",
+    "PhD": "Doctorado (PhD)",
+}
+
+MODEL_NAME_LABELS = {
+    "Logistic Regression": "Regresión Logística",
+    "Decision Tree": "Árbol de Decisión",
+    "Random Forest": "Bosque Aleatorio (Random Forest)",
+}
+
+
+def _model_label(name: str | None) -> str:
+    return MODEL_NAME_LABELS.get(name, name or "desconocido")
 
 
 @st.cache_data
@@ -65,7 +147,9 @@ def render_form(options: dict[str, list[str]]) -> dict | None:
 
         with col1:
             st.subheader("Demográficos y académicos")
-            gender = st.selectbox("Género", GENDER_OPTIONS)
+            gender = st.selectbox(
+                "Género", GENDER_OPTIONS, format_func=lambda v: GENDER_LABELS.get(v, v)
+            )
             age = st.number_input("Edad", min_value=10, max_value=80, value=22)
             city = (
                 st.selectbox("Ciudad", options["city"])
@@ -73,20 +157,36 @@ def render_form(options: dict[str, list[str]]) -> dict | None:
                 else st.text_input("Ciudad")
             )
             profession = (
-                st.selectbox("Profesión", options["profession"])
+                st.selectbox(
+                    "Profesión",
+                    options["profession"],
+                    format_func=lambda v: PROFESSION_LABELS.get(v, v),
+                )
                 if options["profession"]
                 else st.text_input("Profesión", value="Student")
             )
             degree = (
-                st.selectbox("Título / carrera", options["degree"])
+                st.selectbox(
+                    "Título / carrera",
+                    options["degree"],
+                    format_func=lambda v: DEGREE_LABELS.get(v, v),
+                )
                 if options["degree"]
                 else st.text_input("Título / carrera")
             )
             cgpa = st.number_input("CGPA", min_value=0.0, max_value=10.0, value=7.0, step=0.1)
 
             st.subheader("Estilo de vida")
-            sleep_duration = st.selectbox("Horas de sueño", SLEEP_DURATION_OPTIONS)
-            dietary_habits = st.selectbox("Hábitos alimenticios", DIETARY_HABITS_OPTIONS)
+            sleep_duration = st.selectbox(
+                "Horas de sueño",
+                SLEEP_DURATION_OPTIONS,
+                format_func=lambda v: SLEEP_DURATION_LABELS.get(v, v),
+            )
+            dietary_habits = st.selectbox(
+                "Hábitos alimenticios",
+                DIETARY_HABITS_OPTIONS,
+                format_func=lambda v: DIETARY_HABITS_LABELS.get(v, v),
+            )
             work_study_hours = st.number_input(
                 "Horas de estudio/trabajo al día", min_value=0.0, max_value=24.0, value=6.0, step=0.5
             )
@@ -101,10 +201,14 @@ def render_form(options: dict[str, list[str]]) -> dict | None:
 
             st.subheader("Salud mental")
             suicidal_thoughts = st.selectbox(
-                "¿Ha tenido pensamientos suicidas alguna vez?", YES_NO_OPTIONS
+                "¿Ha tenido pensamientos suicidas alguna vez?",
+                YES_NO_OPTIONS,
+                format_func=lambda v: YES_NO_LABELS.get(v, v),
             )
             family_history = st.selectbox(
-                "¿Antecedentes familiares de enfermedad mental?", YES_NO_OPTIONS
+                "¿Antecedentes familiares de enfermedad mental?",
+                YES_NO_OPTIONS,
+                format_func=lambda v: YES_NO_LABELS.get(v, v),
             )
 
         submitted = st.form_submit_button("Evaluar riesgo")
@@ -163,7 +267,7 @@ def render_result(result: dict) -> None:
             "buscar ayuda profesional siempre es una buena decisión."
         )
 
-    st.caption(f"Modelo: {result['model_name']}")
+    st.caption(f"Modelo: {_model_label(result['model_name'])}")
 
 
 def main() -> None:
@@ -179,7 +283,10 @@ def main() -> None:
         st.write(f"API: `{API_URL}`")
         try:
             health = requests.get(f"{API_URL}/health", timeout=3).json()
-            st.success(f"Modelo activo: {health.get('model_name')} (v{health.get('version')})")
+            st.success(
+                f"Modelo activo: {_model_label(health.get('model_name'))} "
+                f"(v{health.get('version')})"
+            )
         except requests.RequestException:
             st.error(
                 "No se pudo conectar a la API. Levántala con "
