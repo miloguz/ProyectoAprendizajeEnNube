@@ -29,6 +29,14 @@ dev = [
     "pre-commit",
 ]
 
+[tool.pytest.ini_options]
+filterwarnings = [
+    # Advertencias internas de starlette/anyio (dependencias de FastAPI TestClient,
+    # no de nuestro código) — no accionables desde este proyecto.
+    "ignore:Using `httpx` with `starlette.testclient` is deprecated:starlette.exceptions.StarletteDeprecationWarning",
+    "ignore:The anyio.abc.BlockingPortal alias is deprecated:DeprecationWarning",
+]
+
 [tool.ruff]
 line-length = 100
 target-version = "py311"
