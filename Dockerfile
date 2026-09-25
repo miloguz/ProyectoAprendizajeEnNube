@@ -1,15 +1,16 @@
 # Imagen de la API de predicción (student-depression-mlops).
 #
-# Sirve el modelo candidato (models/candidate_pipeline.joblib) generado por
-# el pipeline de orquestación (src/orchestration/flow.py). Ese artefacto NO
-# se versiona en git: hay que generarlo antes de construir la imagen.
+# Sirve los modelos (models/model_*.joblib, uno por modelo evaluado, más
+# candidate_pipeline.joblib de respaldo) generados por el pipeline de
+# orquestación (src/orchestration/flow.py). Esos artefactos NO se versionan
+# en git: hay que generarlos antes de construir la imagen.
 #
 #   uv run prefect server start &
 #   uv run python -m src.orchestration.flow
-#   docker build -t student-depression-api:0.2.0 -t student-depression-api:latest .
-#   docker run -p 8000:8000 student-depression-api:0.2.0
+#   docker build -t student-depression-api:0.3.0 -t student-depression-api:latest .
+#   docker run -p 8000:8000 student-depression-api:0.3.0
 #
-# El tag de versión (0.2.0) debe coincidir con `version` en pyproject.toml —
+# El tag de versión (0.3.0) debe coincidir con `version` en pyproject.toml —
 # así la imagen desplegada queda trazable a una versión exacta del código
 # (ver /health, que la reporta en runtime).
 
@@ -30,7 +31,7 @@ RUN uv sync --frozen --no-dev --no-install-project
 
 COPY README.md ./
 COPY src ./src
-COPY models/candidate_pipeline.joblib ./models/candidate_pipeline.joblib
+COPY models/model_*.joblib models/candidate_pipeline.joblib ./models/
 
 RUN uv sync --frozen --no-dev
 
@@ -43,4 +44,4 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
     CMD python -c "import urllib.request as u, sys; sys.exit(0 if u.urlopen('http://localhost:8000/health', timeout=3).status == 200 else 1)"
 
-CMD ["uv", "run", "uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uv", "run", "--frozen", "--no-dev", "uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8000"]

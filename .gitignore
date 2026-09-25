@@ -54,3 +54,7 @@ Thumbs.db
 
 # Logs locales de procesos en segundo plano (servidores de desarrollo)
 *.log
+
+# Symlinks que streamlit crea automáticamente hacia .venv al ejecutarse
+.agents/
+.claude/skills/
