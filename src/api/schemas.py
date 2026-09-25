@@ -44,13 +44,34 @@ class PredictionResponse(BaseModel):
     depression_risk: int = Field(description="1 = riesgo detectado, 0 = no detectado")
     probability: float = Field(description="Probabilidad estimada de la clase positiva")
     threshold: float = Field(description="Umbral de decisión aplicado (no necesariamente 0.5)")
-    model_name: str = Field(description="Modelo candidato que generó la predicción")
+    model_name: str = Field(description="Modelo que generó la predicción")
 
 
 class HealthResponse(BaseModel):
-    """Estado del servicio, versión desplegada y del modelo cargado."""
+    """Estado del servicio, versión desplegada y del modelo candidato."""
 
     status: str
     version: str
     model_name: str | None = None
     metrics: dict | None = None
+    n_models: int = Field(default=0, description="Cantidad de modelos disponibles para predecir")
+
+
+class ModelInfo(BaseModel):
+    """Métricas e hiperparámetros de un modelo disponible en la API."""
+
+    name: str
+    f1: float
+    roc_auc: float
+    recall_pos: float
+    threshold: float = Field(description="Umbral de decisión aplicado por este modelo")
+    best_params: dict = Field(description="Hiperparámetros del modelo (tras el tuning)")
+    n_experiments: int = Field(description="Nº de runs de MLflow registrados para este modelo")
+    is_candidate: bool = Field(description="Si es el modelo candidato (alias MasterModel)")
+
+
+class ModelsResponse(BaseModel):
+    """Listado de modelos disponibles, para poblar selectores y dashboards."""
+
+    models: list[ModelInfo]
+    candidate_model: str
