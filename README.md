@@ -238,26 +238,35 @@ el umbral de decisión**, para que la regla de decisión viaje con el modelo; ta
 queda versionado en el MLflow Model Registry (`student-depression-classifier`, alias
 `MasterModel`).
 
+**Los otros dos modelos no se descartan:** el flow también guarda cada uno por separado
+(`models/model_<slug>.joblib`, con su propio umbral, métricas e hiperparámetros), y la
+API los sirve todos (`GET /models`, `POST /predict?model_name=...`) para poder
+comparar predicciones entre modelos — visible en el dashboard de Streamlit.
+
 ## Despliegue (API + Docker)
 
-El modelo candidato se sirve como un **web-service con API** (FastAPI), empaquetado en
+Los tres modelos se sirven como un **web-service con API** (FastAPI), empaquetado en
 **Docker**. El alcance llega hasta aquí — **sin monitoreo**.
 
 ### Localmente
 
 ```bash
-uv run python -m src.orchestration.flow   # genera models/candidate_pipeline.joblib
+uv run python -m src.orchestration.flow   # genera models/model_*.joblib (los 3 modelos)
 uv run uvicorn src.api.main:app --reload
 ```
 
-- `GET /health` — estado del servicio y métricas del modelo cargado.
+- `GET /health` — estado del servicio, versión y métricas del modelo candidato.
+- `GET /models` — lista los 3 modelos disponibles con sus métricas, umbral,
+  hiperparámetros y nº de experimentos en MLflow (cuál es el candidato).
 - `POST /predict` — recibe las features de un estudiante y devuelve la predicción.
+  Acepta un query param opcional `model_name` para elegir el modelo (por defecto,
+  el candidato).
 - Documentación interactiva (Swagger UI) en **http://localhost:8000/docs**.
 
 Ejemplo:
 
 ```bash
-curl -X POST http://localhost:8000/predict \
+curl -X POST "http://localhost:8000/predict?model_name=Decision%20Tree" \
   -H "Content-Type: application/json" \
   -d '{
     "Gender": "Male", "Age": 24, "City": "Kalyan", "Profession": "Student",
@@ -268,13 +277,14 @@ curl -X POST http://localhost:8000/predict \
     "Work/Study Hours": 10.0, "Financial Stress": 5.0,
     "Family History of Mental Illness": "Yes"
   }'
-# {"depression_risk":1,"probability":0.99,"threshold":0.33,"model_name":"Logistic Regression"}
+# {"depression_risk":1,"probability":0.99,"threshold":0.37,"model_name":"Decision Tree"}
 ```
 
 ### Con Docker
 
-El artefacto `models/candidate_pipeline.joblib` **no se versiona en git**; hay que
-generarlo antes de construir la imagen (ver el flow de orquestación arriba).
+Los artefactos `models/model_*.joblib` y `models/candidate_pipeline.joblib` **no se
+versionan en git**; hay que generarlos antes de construir la imagen (ver el flow de
+orquestación arriba).
 
 ```bash
 docker build -t student-depression-api:0.2.0 -t student-depression-api:latest .
@@ -288,10 +298,16 @@ usuario no-root y trae un `HEALTHCHECK` nativo contra `GET /health`
 ## Interfaz de predicción (Streamlit)
 
 Además de la API, hay una interfaz gráfica en [Streamlit](https://streamlit.io/)
-(`src/app/streamlit_app.py`) pensada para uso no técnico: un formulario con las mismas
-variables del estudiante que pide la API, que al enviarse llama a `POST /predict` y
-muestra el veredicto (riesgo sí/no, probabilidad, umbral aplicado) con la misma nota
-ética de siempre — **es una estimación estadística, no un diagnóstico clínico**.
+(`src/app/streamlit_app.py`) pensada para uso no técnico, con dos pestañas:
+
+- **🔮 Predicción:** mismo formulario que la API, más un **selector para elegir
+  cuál de los 3 modelos** usar (por defecto, el candidato). Al enviarse llama a
+  `POST /predict` y muestra el veredicto (riesgo sí/no, probabilidad, umbral
+  aplicado) con la nota ética de siempre — **es una estimación estadística, no un
+  diagnóstico clínico**.
+- **📊 Dashboard:** tabla comparativa de los 3 modelos (F1, ROC-AUC, recall, umbral,
+  nº de experimentos en MLflow, cuál es el candidato) con un gráfico de barras, y
+  los hiperparámetros de cada uno — pensado para mostrar en la exposición.
 
 Requiere la API corriendo (local o Docker):
 
