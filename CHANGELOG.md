@@ -3,6 +3,29 @@
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/),
 y el proyecto sigue [Semantic Versioning](https://semver.org/lang/es/).
 
+## [0.3.0] - 2026-09-25
+
+### Added
+
+- El pipeline de orquestación guarda **los 3 modelos evaluados** (no solo el
+  candidato) como `models/model_<slug>.joblib`, cada uno con su pipeline,
+  hiperparámetros, umbral, métricas y nº de experimentos en MLflow
+  (`save-model-artifacts`, `src/orchestration/flow.py`).
+- La API sirve los 3 modelos: `GET /models` (métricas, hiperparámetros,
+  cuál es el candidato) y `POST /predict?model_name=...` para elegir con
+  cuál predecir (antes, solo el candidato).
+- Streamlit gana dos pestañas: **Predicción** (con selector de los 3
+  modelos) y **Dashboard** (tabla comparativa, gráfico de F1/ROC-AUC/recall
+  e hiperparámetros por modelo).
+- Manual de instalación y uso en PDF (`Manual_Instalacion.pdf`).
+
+### Changed
+
+- Los artefactos `.joblib` del pipeline de orquestación se guardan
+  comprimidos (`compress=3`) — el de Random Forest baja de ~150MB a ~26MB.
+- Se eliminó el alias `candidate`, huérfano en el MLflow Model Registry
+  desde antes de renombrarlo a `MasterModel`.
+
 ## [0.2.0] - 2026-09-22
 
 ### Added
