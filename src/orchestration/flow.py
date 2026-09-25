@@ -5,7 +5,9 @@ Encadena las etapas: **adquisición de datos** -> **procesamiento** ->
 datos) -> **entrenamiento y optimización de hiperparámetros** ->
 **evaluación** -> **registro y versionado en MLflow**. Al final selecciona
 el **modelo candidato** (mayor F1 en test) y lo deja listo para servir
-(API / Docker) como ``models/candidate_pipeline.joblib``.
+(API / Docker) como ``models/candidate_pipeline.joblib``; además guarda
+**cada** modelo evaluado como ``models/model_<slug>.joblib``, para que la
+API/Streamlit puedan ofrecer los tres para predecir y comparar.
 
 Reutiliza las funciones ya existentes en ``src/data``, ``src/features`` y
 ``src/models`` — este módulo solo las orquesta.
@@ -26,7 +28,12 @@ from sklearn.metrics import recall_score
 from sklearn.model_selection import train_test_split
 
 from src.config.constants import MODELS_DIR, RANDOM_STATE, RAW_DATASET_PATH
-from src.config.mlflow_setup import MODEL_ALIAS, REGISTERED_MODEL_NAME, set_tracking
+from src.config.mlflow_setup import (
+    EXPERIMENT_NAME,
+    MODEL_ALIAS,
+    REGISTERED_MODEL_NAME,
+    set_tracking,
+)
 from src.data.loaders import load_raw_data
 from src.features.engineering import split_X_y
 from src.models.train import evaluate, get_models, threshold_for_min_precision, tune_model
@@ -41,6 +48,15 @@ SEARCH_STRATEGY = {
     "Logistic Regression": "grid",
     "Decision Tree": "grid",
     "Random Forest": "random",
+}
+
+# Slug de archivo por modelo — usado para guardar cada uno como
+# models/model_<slug>.joblib (no solo el candidato), de modo que la API/
+# Streamlit puedan ofrecer los tres para predecir y comparar.
+MODEL_SLUGS = {
+    "Logistic Regression": "logistic_regression",
+    "Decision Tree": "decision_tree",
+    "Random Forest": "random_forest",
 }
 
 
@@ -136,6 +152,53 @@ def select_candidate(results: list[dict]) -> dict:
     return best
 
 
+@task(name="save-model-artifacts")
+def save_model_artifacts(results: list[dict], candidate_name: str) -> dict[str, str]:
+    """Guarda **cada** modelo evaluado (no solo el candidato) como
+    ``models/model_<slug>.joblib``, con su pipeline, hiperparámetros, umbral,
+    métricas y nº de experimentos (runs) registrados para ese modelo en
+    MLflow — para poder ofrecerlos todos en la API/Streamlit (predicción y
+    dashboard comparativo), sin depender de MLflow en tiempo de servicio.
+    """
+    client = MlflowClient()
+    experiment = client.get_experiment_by_name(EXPERIMENT_NAME)
+
+    MODELS_DIR.mkdir(exist_ok=True)
+    paths: dict[str, str] = {}
+    for r in results:
+        n_experiments = len(
+            client.search_runs(
+                [experiment.experiment_id],
+                filter_string=f"params.model_name = '{r['model_name']}'",
+            )
+        )
+        slug = MODEL_SLUGS[r["model_name"]]
+        path = MODELS_DIR / f"model_{slug}.joblib"
+        joblib.dump(
+            {
+                "pipeline": r["pipeline"],
+                "model_name": r["model_name"],
+                "best_params": r["best_params"],
+                "threshold": r["threshold"],
+                "metrics": {
+                    "f1": r["f1"],
+                    "roc_auc": r["roc_auc"],
+                    "recall_pos": r["recall_pos"],
+                },
+                "mlflow_run_id": r["run_id"],
+                "n_experiments": n_experiments,
+                "is_candidate": r["model_name"] == candidate_name,
+            },
+            path,
+            compress=3,
+        )
+        paths[r["model_name"]] = path.as_posix()
+        logger.info(
+            "Guardado %s -> %s (n_experiments=%d)", r["model_name"], path, n_experiments
+        )
+    return paths
+
+
 @task(name="register-candidate")
 def register_candidate(candidate: dict) -> str:
     """Registra el candidato en el Model Registry de MLflow (alias ``MODEL_ALIAS``,
@@ -165,6 +228,7 @@ def register_candidate(candidate: dict) -> str:
             "mlflow_model_version": mv.version,
         },
         artifact_path,
+        compress=3,
     )
 
     logger.info(
@@ -199,6 +263,7 @@ def ml_pipeline() -> dict:
 
     candidate = select_candidate(results)
     artifact_path = register_candidate(candidate)
+    model_paths = save_model_artifacts(results, candidate["model_name"])
 
     print(
         f"Modelo candidato: {candidate['model_name']} "
@@ -206,6 +271,7 @@ def ml_pipeline() -> dict:
         f"recall={candidate['recall_pos']:.4f}, umbral={candidate['threshold']:.3f})"
     )
     print(f"Artefacto listo para servir: {artifact_path}")
+    print(f"Modelos individuales guardados: {model_paths}")
 
     return {
         "candidate_model": candidate["model_name"],
@@ -216,6 +282,7 @@ def ml_pipeline() -> dict:
         },
         "threshold": candidate["threshold"],
         "artifact_path": artifact_path,
+        "model_paths": model_paths,
     }
 
 
