@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import os
 
+import pandas as pd
 import requests
 import streamlit as st
 
@@ -236,9 +237,17 @@ def render_form(options: dict[str, list[str]]) -> dict | None:
     }
 
 
-def call_predict(payload: dict) -> dict:
-    """Llama a POST /predict y devuelve la respuesta ya parseada."""
-    response = requests.post(f"{API_URL}/predict", json=payload, timeout=10)
+def fetch_models() -> list[dict]:
+    """Llama a GET /models y devuelve la lista de modelos disponibles."""
+    response = requests.get(f"{API_URL}/models", timeout=5)
+    response.raise_for_status()
+    return response.json()["models"]
+
+
+def call_predict(payload: dict, model_name: str | None = None) -> dict:
+    """Llama a POST /predict con el modelo elegido y devuelve la respuesta ya parseada."""
+    params = {"model_name": model_name} if model_name else None
+    response = requests.post(f"{API_URL}/predict", json=payload, params=params, timeout=10)
     response.raise_for_status()
     return response.json()
 
@@ -270,6 +279,73 @@ def render_result(result: dict) -> None:
     st.caption(f"Modelo: {_model_label(result['model_name'])}")
 
 
+def render_prediction_tab(models_info: list[dict]) -> None:
+    """Formulario de predicción, con selector del modelo a usar."""
+    model_names = [m["name"] for m in models_info]
+    candidate_name = next((m["name"] for m in models_info if m["is_candidate"]), None)
+    default_index = model_names.index(candidate_name) if candidate_name in model_names else 0
+
+    selected_model = st.selectbox(
+        "Modelo a usar para la predicción",
+        model_names,
+        index=default_index,
+        format_func=_model_label,
+        help=(
+            "Por defecto, el modelo candidato (mayor F1 en test, alias "
+            "MasterModel en el MLflow Model Registry). Puedes comparar con "
+            "los otros dos."
+        ),
+    )
+
+    options = load_category_options()
+    payload = render_form(options)
+
+    if payload is None:
+        return
+
+    try:
+        result = call_predict(payload, selected_model)
+    except requests.RequestException as exc:
+        st.error(f"Error al llamar a la API: {exc}")
+        return
+
+    render_result(result)
+
+
+def render_dashboard_tab(models_info: list[dict]) -> None:
+    """Comparativa de los 3 modelos: métricas, umbral, nº de experimentos e
+    hiperparámetros — pensado para mostrar en la exposición."""
+    st.subheader("Comparación de modelos")
+
+    rows = [
+        {
+            "Modelo": _model_label(m["name"]) + (" 🏆" if m["is_candidate"] else ""),
+            "F1": m["f1"],
+            "ROC-AUC": m["roc_auc"],
+            "Recall": m["recall_pos"],
+            "Umbral": m["threshold"],
+            "Nº experimentos (MLflow)": m["n_experiments"],
+        }
+        for m in models_info
+    ]
+    df = pd.DataFrame(rows).set_index("Modelo")
+    st.dataframe(
+        df.style.format(
+            {"F1": "{:.3f}", "ROC-AUC": "{:.3f}", "Recall": "{:.3f}", "Umbral": "{:.2f}"}
+        ),
+        width="stretch",
+    )
+    st.caption("🏆 = modelo candidato (el que sirve `/predict` por defecto).")
+
+    st.bar_chart(df[["F1", "ROC-AUC", "Recall"]])
+
+    st.subheader("Hiperparámetros por modelo (tras el tuning)")
+    for m in models_info:
+        label = _model_label(m["name"]) + (" — candidato" if m["is_candidate"] else "")
+        with st.expander(label):
+            st.json(m["best_params"])
+
+
 def main() -> None:
     st.set_page_config(page_title="Riesgo de depresión en estudiantes", page_icon="🧠")
     st.title("🧠 Riesgo de depresión en estudiantes")
@@ -284,28 +360,37 @@ def main() -> None:
         try:
             health = requests.get(f"{API_URL}/health", timeout=3).json()
             st.success(
-                f"Modelo activo: {_model_label(health.get('model_name'))} "
+                f"Modelo candidato: {_model_label(health.get('model_name'))} "
                 f"(v{health.get('version')})"
             )
+            st.caption(f"{health.get('n_models', 0)} modelos disponibles")
         except requests.RequestException:
             st.error(
                 "No se pudo conectar a la API. Levántala con "
                 "`uv run uvicorn src.api.main:app --reload` o con Docker."
             )
 
-    options = load_category_options()
-    payload = render_form(options)
-
-    if payload is None:
-        return
-
     try:
-        result = call_predict(payload)
-    except requests.RequestException as exc:
-        st.error(f"Error al llamar a la API: {exc}")
-        return
+        models_info = fetch_models()
+    except requests.RequestException:
+        models_info = []
 
-    render_result(result)
+    tab_predict, tab_dashboard = st.tabs(["🔮 Predicción", "📊 Dashboard"])
+
+    with tab_predict:
+        if not models_info:
+            st.warning(
+                "No se pudo obtener la lista de modelos desde la API. Verifica que "
+                "esté corriendo y que el pipeline de orquestación se haya ejecutado."
+            )
+        else:
+            render_prediction_tab(models_info)
+
+    with tab_dashboard:
+        if not models_info:
+            st.info("Sin datos de modelos para mostrar.")
+        else:
+            render_dashboard_tab(models_info)
 
 
 if __name__ == "__main__":
